@@ -42,11 +42,9 @@ def clip_encoder(model, text, device):
     return text_features[0]
 
 
-def generate_embeddings(path, model='llama', datatoken=''):
+def generate_embeddings(path, out_path=None, model='llama', datatoken=''):
     if model == 'llama':
-        tokenizer = AutoTokenizer.from_pretrained(
-            "knowledgator/Llama-encoder-1.0B"
-        )
+        tokenizer = AutoTokenizer.from_pretrained("knowledgator/Llama-encoder-1.0B")
         lm = LlamaBiModel.from_pretrained("knowledgator/Llama-encoder-1.0B")
     elif model == 'clip':
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -54,17 +52,44 @@ def generate_embeddings(path, model='llama', datatoken=''):
     else:
         raise ValueError("Invalid model name.")
 
+    # Determine output path
+    if out_path is None:
+        out_path = path[:-4] + (".pt" if model == 'llama' else "_clip.pt")
+
     f = open(path, 'r')
     embeddings = []
     for line in tqdm.tqdm(f.readlines()):
         if model == 'llama':
             embeddings.append(llama_encoder(lm, tokenizer, line, datatoken=datatoken).cpu())
-            torch.save(embeddings, path[:-4] + ".pt")
         elif model == 'clip':
             embeddings.append(clip_encoder(lm, line, device).cpu())
-            torch.save(embeddings, path[:-4] + "_clip.pt")
     f.close()
 
+    torch.save(embeddings, out_path)
+    print(f"Saved {len(embeddings)} embeddings to {out_path}")
+    return embeddings
+
+
+# ── Generate all embeddings ──────────────────────────────────────────────────
+# Label embeddings (2 embeddings, one per class)
+# generate_embeddings("data/prompts/label_prompts/abide_label.txt",
+#                     datatoken='label')
+
+# ROI embeddings (116 embeddings)
+# generate_embeddings("data/prompts/ROI_prompts/AAL116_short.txt",
+#                     datatoken='ROI')
+
+# Subject-level demographic embeddings — NO label info (1025 embeddings)
+generate_embeddings(
+    path     = "data/prompts/meta_prompts/abide_meta_descriptions.txt",
+    out_path = "data/prompts/meta_prompts/abide_meta_datatoken.pt",
+    datatoken = ''
+)
 
 # generate_embeddings("data/prompts/ROI_prompts/AAL116_short.txt", datatoken='ROI')
-generate_embeddings("data/prompts/label_prompts/abide_label.txt", datatoken='label')
+
+#generate_embeddings("data/prompts/label_prompts/abide_label.txt", datatoken='label')
+# At the bottom of text2emb.py, comment out the current line and add:
+
+# generate_embeddings("data/prompts/label_prompts/abide_label.txt", datatoken='label')  # original
+# generate_embeddings("data/prompts/meta_prompts/abide_meta_descriptions.txt", datatoken='')

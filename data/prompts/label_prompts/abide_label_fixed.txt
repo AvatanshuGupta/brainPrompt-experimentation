@@ -1,0 +1,2 @@
+A neuroimaging dataset representing the first classification group.
+A neuroimaging dataset representing the second classification group.

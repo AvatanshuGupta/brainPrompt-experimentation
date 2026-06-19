@@ -27,6 +27,7 @@ class E2EBlock(torch.nn.Module):
 class BrainPromptCNet(torch.nn.Module):
     def __init__(self, net_params):
         super(BrainPromptCNet, self).__init__()
+        self.name = 'BrainPromptC'
         in_planes = 1  # example.size(1)
         d = net_params['in_dim']  # example.size(3)
         hidden_dim = net_params['hidden_dim']
@@ -74,6 +75,7 @@ class BrainPromptCNet(torch.nn.Module):
         llm_sim = self.sim(meta_repr)
         binary_matrix = ((hg_sim * llm_sim) > 0.7).float()
         fused_repr = self.global_gcs(out, binary_matrix)
+        fused_repr = fused_repr + hg + meta_repr
 
         self.fused_repr = fused_repr
         self.label_reprs = self.label_transform(self.label_embs.to(device))
@@ -88,7 +90,19 @@ class BrainPromptCNet(torch.nn.Module):
         criterion = nn.CrossEntropyLoss()
         loss = criterion(pred, label)
 
-        loss += self.lambda1 * self.compute_label_loss(label)
+        # DEBUG: Verify auxiliary loss is NOT being added
+        import sys
+        if hasattr(self, '_loss_debug_count'):
+            self._loss_debug_count += 1
+        else:
+            self._loss_debug_count = 1
+        
+        if self._loss_debug_count == 1:
+            print(f"\n[DEBUG] Loss function called - Using ONLY main CrossEntropyLoss")
+            print(f"[DEBUG] Auxiliary loss is DISABLED (lambda1={self.lambda1})")
+
+        # DISABLED: Auxiliary loss
+        # loss += self.lambda1 * self.compute_label_loss(label)
 
         return loss
 

@@ -5,7 +5,10 @@ __pycache__/
 
 # C extensions
 *.so
-
+brain_binfile/
+data/abide_full_AAL116/
+data/adni_AAL116/
+data/prompts/
 # Distribution / packaging
 .Python
 build/

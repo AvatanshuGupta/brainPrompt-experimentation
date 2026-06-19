@@ -90,7 +90,8 @@ name2path = {
     'abide_eyesclosed_full_schaefer100': '/path/to/brain_binfile/abide_eyesclosed_full_schaefer100.bin',
     'abide_adolescents_full_schaefer100': '/path/to/brain_binfile/abide_adolescents_full_schaefer100.bin',
 
-    'abide_full_AAL116': '/path/to/brain_binfile/abide_full_aal116.bin',
+    'abide_full_AAL116':
+        'brain_binfile/abide_full_AAL116.bin',
     'abide_male_full_AAL116': '/path/to/brain_binfile/abide_male_full_AAL116.bin',
     'abide_female_full_AAL116': '/path/to/brain_binfile/abide_female_full_AAL116.bin',
     'abide_children_full_AAL116': '/path/to/brain_binfile/abide_children_full_AAL116.bin',
@@ -181,8 +182,13 @@ class BrainDataset_llm(torch.utils.data.Dataset):
                 Labels['glabel'][i] = 4
 
         self.node_num = G_dataset[0].ndata['N_features'].size(0)
-        self.coor = torch.from_numpy(self.get_3d_corr())
-        self.dist = torch.cdist(self.coor, self.coor, p=2)
+        try:
+            self.coor = torch.from_numpy(self.get_3d_corr())
+            self.dist = torch.cdist(self.coor, self.coor, p=2)
+        except:
+            print("Coordinate file not found. Using dummy coordinates.")
+            self.coor = torch.zeros((116, 3))
+            self.dist = torch.cdist(self.coor, self.coor, p=2)
 
         print("[!] Dataset: ", self.name)
 
@@ -265,68 +271,122 @@ class BrainDataset_llm(torch.utils.data.Dataset):
 
         print("Time taken: {:.4f}s".format(time.time() - t0))
 
+    # def get_all_split_idx(self, dataset):
+    #     """
+    #         - Split total number of graphs into 3 (train, val and test) in 80:10:10
+    #         - Stratified split proportionate to original distribution of data with respect to classes
+    #         - Using sklearn to perform the split and then save the indexes
+    #         - Preparing 10 such combinations of indexes split to be used in Graph NNs
+    #         - As with KFold, each of the 10 fold have unique test set.
+    #     """
+    #     root_idx_dir = './data/{}/'.format(self.name)
+    #     if not os.path.exists(root_idx_dir):
+    #         os.makedirs(root_idx_dir)
+    #     all_idx = {}
+
+    #     # If there are no idx files, do the split and store the files
+    #     if not (os.path.exists(root_idx_dir + 'train.index')):
+    #         print("[!] Splitting the data into train/val/test ...")
+
+    #         # Using 10-fold cross val to compare with benchmark papers
+    #         k_splits = 10
+
+    #         cross_val_fold = StratifiedKFold(n_splits=k_splits, shuffle=True)
+    #         k_data_splits = []
+
+    #         # this is a temporary index assignment, to be used below for val splitting
+    #         for i in range(len(dataset.graph_lists)):
+    #             dataset[i][0].a = lambda: None
+    #             setattr(dataset[i][0].a, 'index', i)
+
+    #         for indexes in cross_val_fold.split(dataset.graph_lists, dataset.graph_labels):
+    #             remain_index, test_index = indexes[0], indexes[1]
+
+    #             remain_set = self.format_dataset([dataset[index] for index in remain_index])
+
+    #             # Gets final 'train' and 'val'
+    #             train, val, _, __ = train_test_split(remain_set,
+    #                                                  range(len(remain_set.graph_lists)),
+    #                                                  test_size=0.111,
+    #                                                  stratify=remain_set.graph_labels)
+
+    #             train, val = self.format_dataset(train), self.format_dataset(val)
+    #             test = self.format_dataset([dataset[index] for index in test_index])
+
+    #             # Extracting only idx
+    #             idx_train = [item[0].a.index for item in train]
+    #             idx_val = [item[0].a.index for item in val]
+    #             idx_test = [item[0].a.index for item in test]
+
+    #             f_train_w = csv.writer(open(root_idx_dir + 'train.index', 'a'))
+    #             f_val_w = csv.writer(open(root_idx_dir + 'val.index', 'a'))
+    #             f_test_w = csv.writer(open(root_idx_dir + 'test.index', 'a'))
+
+    #             f_train_w.writerow(idx_train)
+    #             f_val_w.writerow(idx_val)
+    #             f_test_w.writerow(idx_test)
+
+    #         print("[!] Splitting done!")
+
+    #     # reading idx from the files
+    #     for section in ['train', 'val', 'test']:
+    #         with open(root_idx_dir + section + '.index', 'r') as f:
+    #             reader = csv.reader(f)
+    #             all_idx[section] = [list(map(int, idx)) for idx in reader]
+    #     return all_idx
+
     def get_all_split_idx(self, dataset):
-        """
-            - Split total number of graphs into 3 (train, val and test) in 80:10:10
-            - Stratified split proportionate to original distribution of data with respect to classes
-            - Using sklearn to perform the split and then save the indexes
-            - Preparing 10 such combinations of indexes split to be used in Graph NNs
-            - As with KFold, each of the 10 fold have unique test set.
-        """
         root_idx_dir = './data/{}/'.format(self.name)
         if not os.path.exists(root_idx_dir):
             os.makedirs(root_idx_dir)
         all_idx = {}
 
-        # If there are no idx files, do the split and store the files
         if not (os.path.exists(root_idx_dir + 'train.index')):
             print("[!] Splitting the data into train/val/test ...")
-
-            # Using 10-fold cross val to compare with benchmark papers
             k_splits = 10
-
             cross_val_fold = StratifiedKFold(n_splits=k_splits, shuffle=True)
-            k_data_splits = []
 
-            # this is a temporary index assignment, to be used below for val splitting
             for i in range(len(dataset.graph_lists)):
                 dataset[i][0].a = lambda: None
                 setattr(dataset[i][0].a, 'index', i)
 
+            # Open files ONCE before the loop, write mode, no blank lines on Windows
+            f_train = open(root_idx_dir + 'train.index', 'w', newline='')
+            f_val   = open(root_idx_dir + 'val.index',   'w', newline='')
+            f_test  = open(root_idx_dir + 'test.index',  'w', newline='')
+            f_train_w = csv.writer(f_train)
+            f_val_w   = csv.writer(f_val)
+            f_test_w  = csv.writer(f_test)
+
             for indexes in cross_val_fold.split(dataset.graph_lists, dataset.graph_labels):
                 remain_index, test_index = indexes[0], indexes[1]
-
                 remain_set = self.format_dataset([dataset[index] for index in remain_index])
 
-                # Gets final 'train' and 'val'
                 train, val, _, __ = train_test_split(remain_set,
-                                                     range(len(remain_set.graph_lists)),
-                                                     test_size=0.111,
-                                                     stratify=remain_set.graph_labels)
+                                                    range(len(remain_set.graph_lists)),
+                                                    test_size=0.111,
+                                                    stratify=remain_set.graph_labels)
+                train = self.format_dataset(train)
+                val   = self.format_dataset(val)
+                test  = self.format_dataset([dataset[index] for index in test_index])
 
-                train, val = self.format_dataset(train), self.format_dataset(val)
-                test = self.format_dataset([dataset[index] for index in test_index])
-
-                # Extracting only idx
                 idx_train = [item[0].a.index for item in train]
-                idx_val = [item[0].a.index for item in val]
-                idx_test = [item[0].a.index for item in test]
-
-                f_train_w = csv.writer(open(root_idx_dir + 'train.index', 'a+'))
-                f_val_w = csv.writer(open(root_idx_dir + 'val.index', 'a+'))
-                f_test_w = csv.writer(open(root_idx_dir + 'test.index', 'a+'))
+                idx_val   = [item[0].a.index for item in val]
+                idx_test  = [item[0].a.index for item in test]
 
                 f_train_w.writerow(idx_train)
                 f_val_w.writerow(idx_val)
                 f_test_w.writerow(idx_test)
 
+            f_train.close()
+            f_val.close()
+            f_test.close()
             print("[!] Splitting done!")
 
-        # reading idx from the files
         for section in ['train', 'val', 'test']:
             with open(root_idx_dir + section + '.index', 'r') as f:
                 reader = csv.reader(f)
-                all_idx[section] = [list(map(int, idx)) for idx in reader]
+                all_idx[section] = [list(map(int, idx)) for idx in reader if idx]  # skip empty rows
         return all_idx
 
     def format_dataset(self, dataset):

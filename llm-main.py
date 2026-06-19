@@ -40,7 +40,7 @@ def view_model_param(MODEL_NAME, model):
     return total_param
 
 
-def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
+def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, dataset):
     avg_test_acc, avg_test_precision, avg_test_recall, avg_test_f1, avg_test_roc_auc = [], [], [], [], []
     avg_train_acc = []
     avg_convergence_epochs = []
@@ -49,7 +49,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
     t0 = time.time()
     per_epoch_time = []
 
-    dataset = LoadData_llm(DATASET_NAME, threshold=params['threshold'], node_feat_transform=params['node_feat_transform'])
+    
+
 
     if MODEL_NAME in ['GCN', 'GAT', 'PRGNN', 'GXN', 'BrainGNN']:
         if net_params['self_loop']:
@@ -57,6 +58,10 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
             dataset._add_self_loops()
 
     trainset, valset, testset = dataset.train, dataset.val, dataset.test
+
+    print("dataset.train length =", len(dataset.train))
+    print("dataset.val length =", len(dataset.val))
+    print("dataset.test length =", len(dataset.test))
 
     root_log_dir, root_ckpt_dir, write_file_name, write_config_file = dirs
     device = net_params['device']
@@ -67,6 +72,19 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
+
+        print("\n===== SPLIT SIZES =====")
+
+        for i in range(len(dataset.train)):
+            print(
+                f"Split {i}:",
+                f"train={len(dataset.train[i])}",
+                f"val={len(dataset.val[i])}",
+                f"test={len(dataset.test[i])}"
+            )
+
+        print("=======================\n")
+
         for split_number in range(10):
             t0_split = time.time()
             log_dir = os.path.join(root_log_dir, "RUN_" + str(split_number))
@@ -94,6 +112,24 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
             print("Validation Graphs: ", len(valset))
             print("Test Graphs: ", len(testset))
             print("Number of Classes: ", net_params['n_classes'])
+
+            # ===== Leakage Check =====
+            train_ids = set()
+            for g, y, llm in trainset:
+                train_ids.add(hash(g.ndata['feat'].cpu().numpy().tobytes()))
+
+            test_ids = set()
+            for g, y, llm in testset:
+                test_ids.add(hash(g.ndata['feat'].cpu().numpy().tobytes()))
+
+            intersection = train_ids.intersection(test_ids)
+
+            print("\n===== LEAKAGE CHECK =====")
+            print("Train graphs:", len(train_ids))
+            print("Test graphs:", len(test_ids))
+            print("Overlap:", len(intersection))
+            print("=========================\n")
+            # =========================
 
             if MODEL_NAME in ['BrainPromptG', 'BrainPromptC']:
                 prompt_name = DATASET_NAME.split('_')[0] + '_label.pt'
@@ -330,13 +366,32 @@ def main():
         DATASET_NAME = args.dataset
     else:
         DATASET_NAME = config['dataset']
-    dataset = LoadData_llm(DATASET_NAME, args.threshold, args.edge_ratio, args.node_feat_transform, spatial=args.spatial)
+    print("node_feat_transform =", args.node_feat_transform)
+#     dataset = LoadData_llm(
+#     DATASET_NAME,
+#     args.threshold,
+#     args.edge_ratio,
+#     args.node_feat_transform or 'original'
+# )
+#     dataset = LoadData_llm(
+#     DATASET_NAME,
+#     threshold=params.get('threshold', 0.3),
+#     node_feat_transform=params.get('node_feat_transform', 'pearson')
+# )
+    dataset = LoadData_llm(
+    DATASET_NAME,
+    args.threshold,
+    args.edge_ratio,
+    args.node_feat_transform or "pearson"
+)
     if args.out_dir is not None:
         out_dir = args.out_dir
     else:
         out_dir = config['out_dir']
     # parameters
     params = config['params']
+    params.setdefault('threshold', 0.3)
+    params.setdefault('node_feat_transform', 'pearson')
     if args.seed is not None:
         params['seed'] = int(args.seed)
     if args.epochs is not None:
@@ -466,7 +521,8 @@ def main():
     if not os.path.exists(out_dir + 'configs'):
         os.makedirs(out_dir + 'configs')
 
-    train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs)
+    print("PARAMS =", params)
+    train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, dataset)
 
 
 main()

@@ -11,13 +11,13 @@
 
     "params": {
         "seed": 41,
-        "epochs": 1000,
+        "epochs": 50,
         "batch_size": 34,
         "init_lr": 7e-4,
         "lr_reduce_factor": 0.5,
         "lr_schedule_patience": 25,
         "min_lr": 1e-6,
-        "weight_decay": 0.0,
+        "weight_decay": 0.0001,
         "print_epoch_interval": 5,
         "max_time": 12
     },
@@ -28,8 +28,8 @@
         "out_dim": 116,
         "residual": true,
         "readout": "mean",
-        "in_feat_dropout": 0.0,
-        "dropout": 0.0,
+        "in_feat_dropout": 0.5,
+        "dropout": 0.5,
         "batch_norm": true,
         "self_loop": false,
         "edge_feat": false
