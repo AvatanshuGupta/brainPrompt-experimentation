@@ -10,15 +10,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-from nets.load_net import gnn_model # import GNNs
-from data.data import LoadData_llm # import dataset
+from nets.load_net import gnn_model
+from data.data import LoadData_llm
 from train_TUs_graph_classification_llm import evaluate_network_all_metric
 
 
 def gpu_setup(use_gpu, gpu_id):
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-
     if torch.cuda.is_available() and use_gpu:
         print('cuda available with GPU:', torch.cuda.get_device_name(0))
         device = torch.device("cuda")
@@ -29,12 +28,8 @@ def gpu_setup(use_gpu, gpu_id):
 
 
 def view_model_param(MODEL_NAME, model):
-    # model = gnn_model(MODEL_NAME, net_params)
     total_param = 0
-    # print("MODEL DETAILS:\n")
-    #print(model)
     for param in model.parameters():
-        # print(param.data.size())
         total_param += np.prod(list(param.data.size()))
     print('MODEL/Total parameters:', MODEL_NAME, total_param)
     return total_param
@@ -48,9 +43,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
 
     t0 = time.time()
     per_epoch_time = []
-
-    
-
 
     if MODEL_NAME in ['GCN', 'GAT', 'PRGNN', 'GXN', 'BrainGNN']:
         if net_params['self_loop']:
@@ -66,23 +58,14 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
     root_log_dir, root_ckpt_dir, write_file_name, write_config_file = dirs
     device = net_params['device']
 
-    # Write the network and optimization hyper-parameters in folder config/
     with open(write_config_file + '.txt', 'w') as f:
-        f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n\n""".format(DATASET_NAME, MODEL_NAME, params, net_params))
+        f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n\n""".format(
+            DATASET_NAME, MODEL_NAME, params, net_params))
 
-    # At any point you can hit Ctrl + C to break out of training early.
     try:
-
         print("\n===== SPLIT SIZES =====")
-
         for i in range(len(dataset.train)):
-            print(
-                f"Split {i}:",
-                f"train={len(dataset.train[i])}",
-                f"val={len(dataset.val[i])}",
-                f"test={len(dataset.test[i])}"
-            )
-
+            print(f"Split {i}: train={len(dataset.train[i])} val={len(dataset.val[i])} test={len(dataset.test[i])}")
         print("=======================\n")
 
         for split_number in range(10):
@@ -90,7 +73,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             log_dir = os.path.join(root_log_dir, "RUN_" + str(split_number))
             writer = SummaryWriter(log_dir=log_dir)
 
-            # setting seeds
             os.environ['PYTHONHASHSEED'] = str(params['seed'])
             random.seed(params['seed'])
             np.random.seed(params['seed'])
@@ -98,7 +80,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             torch.cuda.manual_seed_all(params['seed'])
             dgl.seed(params['seed'])
             dgl.random.seed(params['seed'])
-            # torch.use_deterministic_algorithms(True)
             if device.type == 'cuda':
                 torch.cuda.manual_seed(params['seed'])
                 torch.cuda.manual_seed_all(params['seed'])
@@ -117,19 +98,15 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             train_ids = set()
             for g, y, llm in trainset:
                 train_ids.add(hash(g.ndata['feat'].cpu().numpy().tobytes()))
-
             test_ids = set()
             for g, y, llm in testset:
                 test_ids.add(hash(g.ndata['feat'].cpu().numpy().tobytes()))
-
             intersection = train_ids.intersection(test_ids)
-
             print("\n===== LEAKAGE CHECK =====")
             print("Train graphs:", len(train_ids))
             print("Test graphs:", len(test_ids))
             print("Overlap:", len(intersection))
             print("=========================\n")
-            # =========================
 
             if MODEL_NAME in ['BrainPromptG', 'BrainPromptC']:
                 prompt_name = DATASET_NAME.split('_')[0] + '_label.pt'
@@ -138,8 +115,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
 
             model = gnn_model(MODEL_NAME, net_params, trainset)
             model = model.to(device)
-
             net_params['total_param'] = view_model_param(MODEL_NAME, model)
+
             optimizer = optim.Adam(model.parameters(), lr=params['init_lr'], weight_decay=params['weight_decay'])
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
                                                              factor=params['lr_reduce_factor'],
@@ -148,38 +125,41 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             epoch_train_losses, epoch_val_losses = [], []
             epoch_train_accs, epoch_val_accs = [], []
 
-            # batching exception for Diffpool
             drop_last = True if MODEL_NAME in ['DiffPool'] else False
 
             if MODEL_NAME in ['RingGNN', '3WLGNN']:
-                # import train functions specific for WL-GNNs
                 from train_TUs_graph_classification_llm import train_epoch_dense as train_epoch, evaluate_network_dense as evaluate_network
-
                 train_loader = DataLoader(trainset, shuffle=True, collate_fn=dataset.collate_dense_gnn)
                 val_loader = DataLoader(valset, shuffle=False, collate_fn=dataset.collate_dense_gnn)
                 test_loader = DataLoader(testset, shuffle=False, collate_fn=dataset.collate_dense_gnn)
-
             else:
-                # import train functions for all other GCNs
                 from train_TUs_graph_classification_llm import train_epoch_sparse as train_epoch, evaluate_network_sparse as evaluate_network
+                train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True,
+                                          drop_last=drop_last, collate_fn=dataset.collate)
+                val_loader = DataLoader(valset, batch_size=params['batch_size'], shuffle=False,
+                                        drop_last=drop_last, collate_fn=dataset.collate)
+                test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False,
+                                         drop_last=drop_last, collate_fn=dataset.collate)
 
-                train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True, drop_last=drop_last, collate_fn=dataset.collate)
-                val_loader = DataLoader(valset, batch_size=params['batch_size'], shuffle=False, drop_last=drop_last, collate_fn=dataset.collate)
-                test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False, drop_last=drop_last, collate_fn=dataset.collate)
-
+            # ── CHANGE 1: Track best validation accuracy and best checkpoint path ──
             best_val_acc = 0.0
             best_epoch_num = 0
+            best_ckpt_path = None
+            ckpt_dir = os.path.join(root_ckpt_dir, "RUN_" + str(split_number))
+            if not os.path.exists(ckpt_dir):
+                os.makedirs(ckpt_dir)
+
             with tqdm(range(params['epochs'])) as t:
                 for epoch in t:
-
                     t.set_description('Epoch %d' % epoch)
-
                     start = time.time()
 
-                    if MODEL_NAME in ['RingGNN', '3WLGNN']: # since different batch training function for dense GNNs
-                        epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device, train_loader, epoch, params['batch_size'])
-                    else:   # for all other models common train function
-                        epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device, train_loader, epoch)
+                    if MODEL_NAME in ['RingGNN', '3WLGNN']:
+                        epoch_train_loss, epoch_train_acc, optimizer = train_epoch(
+                            model, optimizer, device, train_loader, epoch, params['batch_size'])
+                    else:
+                        epoch_train_loss, epoch_train_acc, optimizer = train_epoch(
+                            model, optimizer, device, train_loader, epoch)
 
                     epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
                     _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)
@@ -202,17 +182,20 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
                                   train_acc=epoch_train_acc, val_acc=epoch_val_acc,
                                   test_acc=epoch_test_acc)
 
-                    per_epoch_time.append(time.time()-start)
+                    per_epoch_time.append(time.time() - start)
 
-                    # Saving checkpoint
-                    ckpt_dir = os.path.join(root_ckpt_dir, "RUN_" + str(split_number))
-                    if not os.path.exists(ckpt_dir):
-                        os.makedirs(ckpt_dir)
-
-                    files = glob.glob(ckpt_dir + '/*.pkl')
-                    for file in files:
-                        os.remove(file)
-                    torch.save(model, '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
+                    # ── CHANGE 2: Save checkpoint ONLY when val_acc improves ──
+                    if epoch_val_acc > best_val_acc:
+                        best_val_acc = epoch_val_acc
+                        best_epoch_num = epoch
+                        # Remove previous best checkpoint
+                        if best_ckpt_path and os.path.exists(best_ckpt_path):
+                            os.remove(best_ckpt_path)
+                        best_ckpt_path = '{}.pkl'.format(
+                            os.path.join(ckpt_dir, "best_epoch_" + str(epoch)))
+                        torch.save(model.state_dict(), best_ckpt_path)
+                        # ── CHANGE 3: Also save full model separately for easy loading ──
+                        torch.save(model, os.path.join(ckpt_dir, "best_model.pkl"))
 
                     scheduler.step(epoch_val_loss)
 
@@ -220,19 +203,29 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
                         print("\n!! LR EQUAL TO MIN LR SET.")
                         break
 
-                    # Stop training after params['max_time'] hours
-                    if time.time()-t0_split > params['max_time']*3600/10:       # Dividing max_time by 10, since there are 10 runs in TUs
+                    if time.time() - t0_split > params['max_time'] * 3600 / 10:
                         print('-' * 89)
-                        print("Max_time for one train-val-test split experiment elapsed {:.3f} hours, so stopping".format(params['max_time']/10))
+                        print("Max_time for one train-val-test split experiment elapsed {:.3f} hours, so stopping".format(
+                            params['max_time'] / 10))
                         break
+
+            # ── CHANGE 4: Load best model before final evaluation ──
+            best_model_path = os.path.join(ckpt_dir, "best_model.pkl")
+            if os.path.exists(best_model_path):
+                model = torch.load(best_model_path, map_location=device)
+                model = model.to(device)
+                print(f"\n✓ Loaded best model from epoch {best_epoch_num} "
+                      f"(val_acc={best_val_acc:.4f}) for final evaluation")
+            else:
+                print("\n⚠ No best model checkpoint found, using last epoch model")
 
             _, train_acc = evaluate_network(model, device, train_loader, epoch)
             avg_train_acc.append(train_acc)
             avg_convergence_epochs.append(epoch)
-            _, test_acc, test_precision, test_recall, test_f1, test_roc_auc, all_test_acc = evaluate_network_all_metric(model,
-                                                                                                          device,
-                                                                                                          test_loader)
-                                                                                                          # path=log_dir + 'saliency.pt')
+
+            _, test_acc, test_precision, test_recall, test_f1, test_roc_auc, all_test_acc = \
+                evaluate_network_all_metric(model, device, test_loader)
+
             avg_test_acc.append(test_acc)
             avg_test_precision.append(test_precision)
             avg_test_recall.append(test_recall)
@@ -240,10 +233,10 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             avg_test_roc_auc.append(test_roc_auc)
 
             print(all_test_acc)
-            print("Test Accuracy [LAST EPOCH]: {:.4f}".format(test_acc))
-            print("Train Accuracy [LAST EPOCH]: {:.4f}".format(train_acc))
+            print("Test Accuracy [BEST VAL EPOCH {}]: {:.4f}".format(best_epoch_num, test_acc))
+            print("Train Accuracy [BEST VAL EPOCH]: {:.4f}".format(train_acc))
+            print("Best Val Accuracy: {:.4f}".format(best_val_acc))
             print("Convergence Time (Epochs): {:.4f}\n".format(epoch))
-            # print("Best Epoch: {}\n".format(best_epoch_num))
 
     except KeyboardInterrupt:
         print('-' * 89)
@@ -253,7 +246,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
     print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
     print("AVG CONVERGENCE Time (Epochs): {:.4f}".format(np.mean(np.array(avg_convergence_epochs))))
 
-    # Final test accuracy value averaged over 10-fold
     print("""\n\n\nFINAL RESULTS\n\nTRAIN ACCURACY averaged: {:.4f} with s.d. {:.4f}""".format(
         np.mean(np.array(avg_train_acc)) * 100, np.std(avg_train_acc) * 100))
     print("\nAll splits Train Accuracies:\n", avg_train_acc)
@@ -268,12 +260,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
         np.mean(np.array(avg_test_f1)) * 100, np.std(avg_test_f1) * 100))
     print("""TEST roc_auc averaged: {:.4f} with s.d. {:.4f}""".format(
         np.mean(np.array(avg_test_roc_auc)) * 100, np.std(avg_test_roc_auc) * 100))
-    # print("""All TEST ACCURACY averaged: {}""".format((avg_all_test_acc/10).tolist()))
     print("\nAll splits Test Accuracies:\n", avg_test_acc)
 
-    """
-        Write the results in out/results folder
-    """
     with open(write_file_name + '.txt', 'w') as f:
         f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
     FINAL RESULTS\nTEST ACCURACY: {:.4f} with s.d. {:.4f}\nTEST precision: {:.4f} with s.d. {:.4f}\nTEST recall: {:.4f} with s.d. {:.4f}\n
@@ -285,15 +273,12 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
                         np.mean(np.array(avg_test_recall)) * 100, np.std(avg_test_recall) * 100,
                         np.mean(np.array(avg_test_f1)) * 100, np.std(avg_test_f1) * 100,
                         np.mean(np.array(avg_test_roc_auc)) * 100, np.std(avg_test_roc_auc) * 100,
-                        np.mean(np.array(avg_train_acc))*100, np.std(avg_train_acc)*100,
+                        np.mean(np.array(avg_train_acc)) * 100, np.std(avg_train_acc) * 100,
                         np.mean(avg_convergence_epochs), np.std(avg_convergence_epochs),
-                        (time.time()-t0)/3600, np.mean(per_epoch_time), avg_test_acc))
+                        (time.time() - t0) / 3600, np.mean(per_epoch_time), avg_test_acc))
 
 
 def main():
-    """
-        USER CONTROLS
-    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help="Please give a config.json file with training/model/data/param details")
     parser.add_argument('--gpu_id', help="Please give a value for gpu id")
@@ -332,10 +317,10 @@ def main():
     parser.add_argument('--cat', help="Please give a value for cat")
     parser.add_argument('--self_loop', help="Please give a value for self_loop")
     parser.add_argument('--max_time', help="Please give a value for max_time")
-    parser.add_argument('--threshold', type=float, help="Please give a threshold to drop edge", default=0.3)
-    parser.add_argument('--edge_ratio', type=float, help="Please give a ratio to drop edge", default=0)
-    parser.add_argument('--node_feat_transform', help="Please give a value for node feature transform", default=None)
-    parser.add_argument('--pos_enc', help="Please give a value for positional encoding")
+    parser.add_argument('--threshold', type=float, default=0.3)
+    parser.add_argument('--edge_ratio', type=float, default=0)
+    parser.add_argument('--node_feat_transform', default=None)
+    parser.add_argument('--pos_enc')
     parser.add_argument('--contrast', default=False, action='store_true')
     parser.add_argument('--pooling', type=float, default=0.5)
     parser.add_argument('--lambda1', type=float, default=0.001)
@@ -346,10 +331,10 @@ def main():
     parser.add_argument('--dis_loss', default=False, action='store_true')
     parser.add_argument('--spatial', type=str, default='')
     args = parser.parse_args()
+
     with open(args.config) as f:
         config = json.load(f)
 
-    # device
     if args.gpu_id is not None and config['gpu']['use']:
         config['gpu']['id'] = int(args.gpu_id)
         config['gpu']['use'] = True
@@ -357,140 +342,77 @@ def main():
     else:
         config['gpu']['id'] = 0
         device = torch.device('cpu')
-    # model, dataset, out_dir
-    if args.model is not None:
-        MODEL_NAME = args.model
-    else:
-        MODEL_NAME = config['model']
-    if args.dataset is not None:
-        DATASET_NAME = args.dataset
-    else:
-        DATASET_NAME = config['dataset']
+
+    MODEL_NAME = args.model if args.model is not None else config['model']
+    DATASET_NAME = args.dataset if args.dataset is not None else config['dataset']
+
     print("node_feat_transform =", args.node_feat_transform)
-#     dataset = LoadData_llm(
-#     DATASET_NAME,
-#     args.threshold,
-#     args.edge_ratio,
-#     args.node_feat_transform or 'original'
-# )
-#     dataset = LoadData_llm(
-#     DATASET_NAME,
-#     threshold=params.get('threshold', 0.3),
-#     node_feat_transform=params.get('node_feat_transform', 'pearson')
-# )
+
+    # ── CHANGE 5: Single dataset load — removed duplicate LoadData_llm call ──
     dataset = LoadData_llm(
-    DATASET_NAME,
-    args.threshold,
-    args.edge_ratio,
-    args.node_feat_transform or "pearson"
-)
-    if args.out_dir is not None:
-        out_dir = args.out_dir
-    else:
-        out_dir = config['out_dir']
-    # parameters
+        DATASET_NAME,
+        args.threshold,
+        args.edge_ratio,
+        args.node_feat_transform or "pearson"
+    )
+
+    out_dir = args.out_dir if args.out_dir is not None else config['out_dir']
     params = config['params']
     params.setdefault('threshold', 0.3)
     params.setdefault('node_feat_transform', 'pearson')
-    if args.seed is not None:
-        params['seed'] = int(args.seed)
-    if args.epochs is not None:
-        params['epochs'] = int(args.epochs)
-    if args.batch_size is not None:
-        params['batch_size'] = int(args.batch_size)
-    if args.init_lr is not None:
-        params['init_lr'] = float(args.init_lr)
-    if args.lr_reduce_factor is not None:
-        params['lr_reduce_factor'] = float(args.lr_reduce_factor)
-    if args.lr_schedule_patience is not None:
-        params['lr_schedule_patience'] = int(args.lr_schedule_patience)
-    if args.min_lr is not None:
-        params['min_lr'] = float(args.min_lr)
-    if args.weight_decay is not None:
-        params['weight_decay'] = float(args.weight_decay)
-    if args.print_epoch_interval is not None:
-        params['print_epoch_interval'] = int(args.print_epoch_interval)
-    if args.max_time is not None:
-        params['max_time'] = float(args.max_time)
-    if args.threshold is not None:
-        params['threshold'] = float(args.threshold)
-    if args.edge_ratio is not None:
-        params['edge_ratio'] = float(args.edge_ratio)
-    if args.node_feat_transform is not None:
-        params['node_feat_transform'] = args.node_feat_transform
-    # network parameters
+
+    if args.seed is not None: params['seed'] = int(args.seed)
+    if args.epochs is not None: params['epochs'] = int(args.epochs)
+    if args.batch_size is not None: params['batch_size'] = int(args.batch_size)
+    if args.init_lr is not None: params['init_lr'] = float(args.init_lr)
+    if args.lr_reduce_factor is not None: params['lr_reduce_factor'] = float(args.lr_reduce_factor)
+    if args.lr_schedule_patience is not None: params['lr_schedule_patience'] = int(args.lr_schedule_patience)
+    if args.min_lr is not None: params['min_lr'] = float(args.min_lr)
+    if args.weight_decay is not None: params['weight_decay'] = float(args.weight_decay)
+    if args.print_epoch_interval is not None: params['print_epoch_interval'] = int(args.print_epoch_interval)
+    if args.max_time is not None: params['max_time'] = float(args.max_time)
+    if args.threshold is not None: params['threshold'] = float(args.threshold)
+    if args.edge_ratio is not None: params['edge_ratio'] = float(args.edge_ratio)
+    if args.node_feat_transform is not None: params['node_feat_transform'] = args.node_feat_transform
+
     net_params = config['net_params']
-    if 'node_num' in dir(dataset):
-        net_params['node_num'] = int(dataset.node_num)
+    if 'node_num' in dir(dataset): net_params['node_num'] = int(dataset.node_num)
     net_params['device'] = device
     net_params['gpu_id'] = config['gpu']['id']
     net_params['batch_size'] = params['batch_size']
-    if args.L is not None:
-        net_params['L'] = int(args.L)
-    if args.hidden_dim is not None:
-        net_params['hidden_dim'] = int(args.hidden_dim)
-    if args.out_dim is not None:
-        net_params['out_dim'] = int(args.out_dim)
-    if args.residual is not None:
-        net_params['residual'] = True if args.residual=='True' else False
-    if args.edge_feat is not None:
-        net_params['edge_feat'] = True if args.edge_feat=='True' else False
-    if args.readout is not None:
-        net_params['readout'] = args.readout
-    if args.kernel is not None:
-        net_params['kernel'] = int(args.kernel)
-    if args.n_heads is not None:
-        net_params['n_heads'] = int(args.n_heads)
-    if args.gated is not None:
-        net_params['gated'] = True if args.gated=='True' else False
-    if args.in_feat_dropout is not None:
-        net_params['in_feat_dropout'] = float(args.in_feat_dropout)
-    if args.dropout is not None:
-        net_params['dropout'] = float(args.dropout)
-    if args.layer_norm is not None:
-        net_params['layer_norm'] = True if args.layer_norm=='True' else False
-    if args.batch_norm is not None:
-        net_params['batch_norm'] = True if args.batch_norm=='True' else False
-    if args.sage_aggregator is not None:
-        net_params['sage_aggregator'] = args.sage_aggregator
-    if args.data_mode is not None:
-        net_params['data_mode'] = args.data_mode
-    if args.num_pool is not None:
-        net_params['num_pool'] = int(args.num_pool)
-    if args.gnn_per_block is not None:
-        net_params['gnn_per_block'] = int(args.gnn_per_block)
-    if args.embedding_dim is not None:
-        net_params['embedding_dim'] = int(args.embedding_dim)
-    if args.pool_ratio is not None:
-        net_params['pool_ratio'] = float(args.pool_ratio)
-    if args.linkpred is not None:
-        net_params['linkpred'] = True if args.linkpred=='True' else False
-    if args.cat is not None:
-        net_params['cat'] = True if args.cat=='True' else False
-    if args.self_loop is not None:
-        net_params['self_loop'] = True if args.self_loop=='True' else False
-    if args.contrast is not None:
-        net_params['contrast'] = args.contrast
-    if args.pooling is not None:
-        net_params['pooling'] = float(args.pooling)
-    if args.lambda1 is not None:
-        net_params['lambda1'] = float(args.lambda1)
-    if args.lambda2 is not None:
-        net_params['lambda2'] = float(args.lambda2)
-    if args.lambda3 is not None:
-        net_params['lambda3'] = float(args.lambda3)
-    if args.lambda4 is not None:
-        net_params['lambda4'] = float(args.lambda4)
-    if args.learnable_q is not None:
-        net_params['learnable_q'] = args.learnable_q
-    # if args.pos_enc is not None:
+    if args.L is not None: net_params['L'] = int(args.L)
+    if args.hidden_dim is not None: net_params['hidden_dim'] = int(args.hidden_dim)
+    if args.out_dim is not None: net_params['out_dim'] = int(args.out_dim)
+    if args.residual is not None: net_params['residual'] = True if args.residual == 'True' else False
+    if args.edge_feat is not None: net_params['edge_feat'] = True if args.edge_feat == 'True' else False
+    if args.readout is not None: net_params['readout'] = args.readout
+    if args.kernel is not None: net_params['kernel'] = int(args.kernel)
+    if args.n_heads is not None: net_params['n_heads'] = int(args.n_heads)
+    if args.gated is not None: net_params['gated'] = True if args.gated == 'True' else False
+    if args.in_feat_dropout is not None: net_params['in_feat_dropout'] = float(args.in_feat_dropout)
+    if args.dropout is not None: net_params['dropout'] = float(args.dropout)
+    if args.layer_norm is not None: net_params['layer_norm'] = True if args.layer_norm == 'True' else False
+    if args.batch_norm is not None: net_params['batch_norm'] = True if args.batch_norm == 'True' else False
+    if args.sage_aggregator is not None: net_params['sage_aggregator'] = args.sage_aggregator
+    if args.data_mode is not None: net_params['data_mode'] = args.data_mode
+    if args.num_pool is not None: net_params['num_pool'] = int(args.num_pool)
+    if args.gnn_per_block is not None: net_params['gnn_per_block'] = int(args.gnn_per_block)
+    if args.embedding_dim is not None: net_params['embedding_dim'] = int(args.embedding_dim)
+    if args.pool_ratio is not None: net_params['pool_ratio'] = float(args.pool_ratio)
+    if args.linkpred is not None: net_params['linkpred'] = True if args.linkpred == 'True' else False
+    if args.cat is not None: net_params['cat'] = True if args.cat == 'True' else False
+    if args.self_loop is not None: net_params['self_loop'] = True if args.self_loop == 'True' else False
+    if args.contrast is not None: net_params['contrast'] = args.contrast
+    if args.pooling is not None: net_params['pooling'] = float(args.pooling)
+    if args.lambda1 is not None: net_params['lambda1'] = float(args.lambda1)
+    if args.lambda2 is not None: net_params['lambda2'] = float(args.lambda2)
+    if args.lambda3 is not None: net_params['lambda3'] = float(args.lambda3)
+    if args.lambda4 is not None: net_params['lambda4'] = float(args.lambda4)
+    if args.learnable_q is not None: net_params['learnable_q'] = args.learnable_q
     net_params['pos_enc'] = args.pos_enc
-    if args.dis_loss is not None:
-        net_params['dis_loss'] = args.dis_loss
-    if args.spatial is not None:
-        params['spatial'] = args.spatial
+    if args.dis_loss is not None: net_params['dis_loss'] = args.dis_loss
+    if args.spatial is not None: params['spatial'] = args.spatial
 
-    # TUs
     net_params['in_dim'] = dataset.all.graph_lists[0].ndata['feat'].shape[1]
     net_params['edge_dim'] = dataset.all.graph_lists[0].edata['feat'][0].shape[0] \
         if 'feat' in dataset.all.graph_lists[0].edata else None
@@ -499,8 +421,6 @@ def main():
 
     if MODEL_NAME in ['DiffPool', 'DiffCS', 'HighwayNet']:
         net_params['max_num_node'] = dataset.node_num
-        # calculate assignment dimension: pool_ratio * largest graph's maximum
-        # number of nodes  in the dataset
         num_nodes = [dataset.all[i][0].number_of_nodes() for i in range(len(dataset.all))]
         max_num_node = max(num_nodes)
         net_params['assign_dim'] = int(max_num_node * net_params['pool_ratio']) * net_params['batch_size']
@@ -517,7 +437,6 @@ def main():
 
     if not os.path.exists(out_dir + 'results'):
         os.makedirs(out_dir + 'results')
-
     if not os.path.exists(out_dir + 'configs'):
         os.makedirs(out_dir + 'configs')
 
