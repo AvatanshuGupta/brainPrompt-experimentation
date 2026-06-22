@@ -6,10 +6,15 @@ from torch.utils.data import DataLoader
 
 from data.data import LoadData_llm
 from train_TUs_graph_classification_llm import evaluate_network_all_metric
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--model', default='BrainPromptGT')
+parser.add_argument('--dataset', default='abide_full_AAL116')
+args = parser.parse_args()
 
 # ── Step 1: Find latest BrainPromptG ABIDE checkpoint run ─────────────────────
 ckpt_base = 'out/braindata_graph_classification/checkpoints/'
-pattern = os.path.join(ckpt_base, 'BrainPromptG_abide_full_AAL116_GPU0_*')
+pattern = os.path.join(ckpt_base, f'{args.model}_{args.dataset}_GPU0_*')
 
 all_runs = glob.glob(pattern)
 

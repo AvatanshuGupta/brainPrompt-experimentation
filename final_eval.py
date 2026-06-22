@@ -30,6 +30,8 @@ print(f"Total subjects: {len(dataset.all)}")
 print(f"\nLoading model from: {MODEL_PATH}")
 model = torch.load(MODEL_PATH, map_location=DEVICE)
 model = model.to(DEVICE)
+print(f"Model architecture: {model.name}")
+print(f"Model parameters:   {sum(p.numel() for p in model.parameters()):,}")
 model.eval()
 
 # Inject label embeddings (required by BrainPromptG forward pass)
