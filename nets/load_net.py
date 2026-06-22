@@ -8,6 +8,7 @@ from nets.mlp_net import MLPNet
 from nets.brain_net_cnn import BrainNetCNN
 from nets.brainpromptg_net import BrainPromptGNet
 from nets.brainpromptc_net import BrainPromptCNet
+from nets.brainpromptGT_net import BrainPromptGTNet  
 
 
 def MLP(net_params, trainset):
@@ -16,17 +17,17 @@ def MLP(net_params, trainset):
 def GCN(net_params, trainset):
     return GCNNet(net_params)
 
-
 def BrainCNN(net_params, trainset):
     return BrainNetCNN(net_params)
-
 
 def BrainPromptG(net_params, trainset):
     return BrainPromptGNet(net_params)
 
-
 def BrainPromptC(net_params, trainset):
     return BrainPromptCNet(net_params)
+
+def BrainPromptGT(net_params, trainset):          
+    return BrainPromptGTNet(net_params)
 
 
 def gnn_model(MODEL_NAME, net_params, trainset):
@@ -36,8 +37,8 @@ def gnn_model(MODEL_NAME, net_params, trainset):
         'BrainNetCNN': BrainCNN,
         "BrainPromptG": BrainPromptG,
         "BrainPromptC": BrainPromptC,
+        "BrainPromptGT": BrainPromptGT,        
     }
     model = models[MODEL_NAME](net_params, trainset)
     model.name = MODEL_NAME
-        
     return model
