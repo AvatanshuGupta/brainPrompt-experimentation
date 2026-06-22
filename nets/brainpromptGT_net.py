@@ -4,7 +4,7 @@ import dgl.function as fn
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers.mlp_readout_layer import MLPReadout, simpleGCNLayer
+from layers.mlp_readout_layer import MLPReadout
 from layers.gcn_layer import simpleGCNLayer
 from layers.attention_layer import LMPE
 
