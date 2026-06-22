@@ -108,7 +108,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, datas
             print("Overlap:", len(intersection))
             print("=========================\n")
 
-            if MODEL_NAME in ['BrainPromptG', 'BrainPromptC']:
+            if MODEL_NAME in ['BrainPromptG', 'BrainPromptC', 'BrainPromptGT']:
                 prompt_name = DATASET_NAME.split('_')[0] + '_label.pt'
                 label_embs = torch.stack(torch.load('data/prompts/label_prompts/' + prompt_name)).squeeze()
                 net_params['label_embs'] = label_embs
